@@ -1,0 +1,152 @@
+//+------------------------------------------------------------------+
+//|                                                 PeakyBuffers.mq4 |
+//|                                           Copyright 2019, Tomele |
+//+------------------------------------------------------------------+
+#property copyright "Copyright 2019, Tomele"
+#property version   "1.2"
+#property strict
+
+#property indicator_buffers 8
+#property indicator_chart_window
+
+extern int  NumberOfBars          = 1440;
+extern int  TradeableRangeDivisor = 2;
+extern bool FreezeTradeableRange  = false;
+
+extern color LongColor  = Lime;
+extern color ShortColor = Red;
+extern color HighColor  = Crimson;
+extern color LowColor   = Green;
+
+double PeakLow[];
+double PeakHigh[];
+double BorderLow[];
+double BorderHigh[];
+double PeakLong[];
+double PeakShort[];
+double BorderLong[];
+double BorderShort[];
+
+enum SIGNAL
+{
+   FLAT,
+   LONG,
+   SHORT
+};
+
+SIGNAL oldDirection;
+double range;
+
+
+int OnInit()
+{
+   IndicatorShortName(WindowExpertName());
+
+   SetIndexBuffer(0,PeakLow);
+   SetIndexBuffer(1,PeakHigh);
+   SetIndexBuffer(2,BorderLow);
+   SetIndexBuffer(3,BorderHigh);
+   SetIndexBuffer(4,PeakLong);
+   SetIndexBuffer(5,PeakShort);
+   SetIndexBuffer(6,BorderLong);
+   SetIndexBuffer(7,BorderShort);
+
+   SetIndexStyle(0,DRAW_LINE,STYLE_SOLID,1,LowColor);   SetIndexLabel(0,"Peak Low");
+   SetIndexStyle(1,DRAW_LINE,STYLE_SOLID,1,HighColor);  SetIndexLabel(1,"Peak High");
+   SetIndexStyle(2,DRAW_LINE,STYLE_SOLID,1,LowColor);   SetIndexLabel(2,"Border Low");
+   SetIndexStyle(3,DRAW_LINE,STYLE_SOLID,1,HighColor);  SetIndexLabel(3,"Border High");
+   SetIndexStyle(4,DRAW_LINE,STYLE_SOLID,3,LongColor);  SetIndexLabel(4,"Peak Long");
+   SetIndexStyle(5,DRAW_LINE,STYLE_SOLID,3,ShortColor); SetIndexLabel(5,"Peak Short");
+   SetIndexStyle(6,DRAW_LINE,STYLE_SOLID,3,LongColor);  SetIndexLabel(6,"Border Long");
+   SetIndexStyle(7,DRAW_LINE,STYLE_SOLID,3,ShortColor); SetIndexLabel(7,"Border Short");
+
+   oldDirection=FLAT;
+   
+   return(INIT_SUCCEEDED);
+}
+
+
+int OnCalculate(const int rates_total,
+                const int prev_calculated,
+                const datetime &time[],
+                const double &open[],
+                const double &high[],
+                const double &low[],
+                const double &close[],
+                const long &tick_volume[],
+                const long &volume[],
+                const int &spread[])
+{
+   int limit;
+   
+   if(FreezeTradeableRange) limit=MathMin(NumberOfBars,rates_total);
+   else limit=MathMin(NumberOfBars,rates_total-prev_calculated);
+   if(limit==rates_total) limit--;
+   
+   for(int shift=limit; shift>=0; shift--)
+   {
+      // Clear all buffers
+      PeakLow[shift]    =EMPTY_VALUE;
+      PeakHigh[shift]   =EMPTY_VALUE;
+      BorderLow[shift]  =EMPTY_VALUE;
+      BorderHigh[shift] =EMPTY_VALUE;
+      PeakLong[shift]   =EMPTY_VALUE;
+      PeakShort[shift]  =EMPTY_VALUE;
+      BorderLong[shift] =EMPTY_VALUE;
+      BorderShort[shift]=EMPTY_VALUE;
+      
+      // Search for Peak High and Low
+      int currentPeakHighBar=iHighest(Symbol(),Period(),MODE_CLOSE,NumberOfBars,shift);
+      int currentPeakLowBar =iLowest (Symbol(),Period(),MODE_CLOSE,NumberOfBars,shift);
+      
+      // Get prices
+      double highest=iClose(Symbol(),Period(),currentPeakHighBar);
+      double lowest =iClose(Symbol(),Period(),currentPeakLowBar);
+      
+      // Get direction
+      SIGNAL direction=FLAT;
+      if(currentPeakLowBar<currentPeakHighBar) direction=LONG; else
+      if(currentPeakLowBar>currentPeakHighBar) direction=SHORT;
+      
+      // Calculate tradable range, if new direction or advised to compute always
+      if(direction!=oldDirection || !FreezeTradeableRange)
+      {
+         range=(highest-lowest)/(double)TradeableRangeDivisor;
+         oldDirection=direction;
+      }
+      
+      // Direction is LONG, check for signal within range
+      if(direction==LONG)
+      {
+         PeakLow[shift]=lowest;
+         BorderLow[shift]=lowest+range;
+         
+         if(iClose(Symbol(),Period(),shift)<lowest+range)
+         {
+            PeakLong[shift]=lowest;
+            BorderLong[shift]=lowest+range;
+         } 
+      } else
+
+      // Direction is SHORT, check for signal within range
+      if(direction==SHORT)
+      {
+         PeakHigh[shift]=highest;
+         BorderHigh[shift]=highest-range;
+         
+         if(iClose(Symbol(),Period(),shift)>highest-range)
+         {
+            PeakShort[shift]=highest;
+            BorderShort[shift]=highest-range;
+         } 
+      }
+   }
+   
+   return(rates_total);
+}
+
+
+void OnTimer()
+{
+}
+
